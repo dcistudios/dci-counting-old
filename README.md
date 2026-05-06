@@ -33,8 +33,8 @@ A feature-rich Discord counting bot with multiple gamemodes, anti-cheat, global 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/dci-counting-bot.git
-cd dci-counting-bot
+git clone https://github.com/dcistudios/dci-counting-old
+cd dci-counting-old
 ```
 
 ### 2. Install dependencies
