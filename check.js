@@ -1,14 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 let failed = false;
 let warnings = 0;
+const lines = [];
 
-function pass(msg)  { console.log(`✅ ${msg}`); }
-function warn(msg)  { console.warn(`⚠️  ${msg}`); warnings++; }
-function fail(msg)  { console.error(`❌ ${msg}`); failed = true; }
-function info(msg)  { console.log(`ℹ️  ${msg}`); }
-function header(msg){ console.log(`\n── ${msg} ──`); }
+function pass(msg)   { const l = `✅ ${msg}`;  console.log(l);   lines.push(l); }
+function warn(msg)   { const l = `⚠️  ${msg}`; console.warn(l);  lines.push(l); warnings++; }
+function fail(msg)   { const l = `❌ ${msg}`;  console.error(l); lines.push(l); failed = true; }
+function header(msg) { const l = `\n── ${msg} ──`; console.log(l); lines.push(l); }
 
 // ── 1. Hardcoded owner IDs ─────────────────────────────────────────────────
 header('Owner ID checks');
@@ -58,9 +59,9 @@ if (!fs.existsSync(evalFile)) {
 header('Sensitive value exposure');
 
 const sensitivePatterns = [
-    { pattern: /TOKEN\s*=\s*['"][A-Za-z0-9._-]{20,}['"]/,  label: 'hardcoded TOKEN' },
+    { pattern: /TOKEN\s*=\s*['"][A-Za-z0-9._-]{20,}['"]/, label: 'hardcoded TOKEN' },
     { pattern: /CLIENT_SECRET\s*=\s*['"][A-Za-z0-9._-]{10,}['"]/, label: 'hardcoded CLIENT_SECRET' },
-    { pattern: /DASHBOARD_TOKEN\s*=\s*['"][^'"]{6,}['"]/,   label: 'hardcoded DASHBOARD_TOKEN' },
+    { pattern: /DASHBOARD_TOKEN\s*=\s*['"][^'"]{6,}['"]/, label: 'hardcoded DASHBOARD_TOKEN' },
 ];
 
 for (const file of jsFiles) {
@@ -111,7 +112,7 @@ if (!fs.existsSync('.gitignore')) {
     }
 }
 
-if (!fs.existsSync('.gitignore') || !fs.readFileSync('.gitignore','utf8').includes('.env')) {
+if (!fs.existsSync('.gitignore') || !fs.readFileSync('.gitignore', 'utf8').includes('.env')) {
     fail('.env is not in .gitignore — secrets may be committed');
 } else {
     pass('.env is listed in .gitignore');
@@ -148,20 +149,79 @@ if (fs.existsSync(commandDir)) {
         const hasData    = src.includes('data');
         const hasExecute = src.includes('execute');
         if (!hasData || !hasExecute) {
-            fail(`commands/${file}: missing ${!hasData ? '\'data\'' : '\'execute\''} export — command will not load`);
+            fail(`commands/${file}: missing ${!hasData ? "'data'" : "'execute'"} export — command will not load`);
         } else {
             pass(`commands/${file}: exports look correct`);
         }
     }
 }
 
-// ── Summary ────────────────────────────────────────────────────────────────
+// ── Summary & Discord webhook ──────────────────────────────────────────────
 console.log('\n' + '─'.repeat(40));
+
+const statusText = failed ? 'Failed' : warnings > 0 ? 'Passed with warnings' : 'All checks passed';
+const color = failed ? 15549013 : warnings > 0 ? 16769116 : 5763719;
+
 if (failed) {
-    console.error(`\n❌ Checker failed — fix the errors above before merging.\n`);
-    process.exit(1);
+    console.error('\nChecker failed - fix the errors above before merging.\n');
 } else if (warnings > 0) {
-    console.warn(`\n⚠️  Passed with ${warnings} warning(s).\n`);
+    console.warn(`\nPassed with ${warnings} warning(s).\n`);
 } else {
-    console.log(`\n✅ All checks passed.\n`);
+    console.log('\nAll checks passed.\n');
 }
+
+const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+if (webhookUrl) {
+    const repo   = process.env.GITHUB_REPOSITORY || null;
+    const run    = process.env.GITHUB_RUN_ID || null;
+    const ref    = process.env.GITHUB_REF_NAME || 'local';
+    const actor  = process.env.GITHUB_ACTOR || 'local';
+    const runUrl = repo && run ? `https://github.com/${repo}/actions/runs/${run}` : null;
+
+    const output = lines.join('\n').replace(/[^\x20-\x7E\n]/g, '').trim();
+    const truncated = output.length > 900 ? output.slice(0, 900) + '\n...(truncated)' : output;
+
+    const passed = lines.filter(l => l.startsWith('OK ')).length;
+    const failed_count = lines.filter(l => l.startsWith('FAIL ')).length;
+    const warned = lines.filter(l => l.startsWith('WARN ')).length;
+
+    const embed = {
+        title: `DCI Checker - ${statusText}`,
+        color,
+        fields: [
+            { name: 'Repository',   value: repo || 'local', inline: true },
+            { name: 'Branch',       value: ref,             inline: true },
+            { name: 'Triggered by', value: actor,           inline: true },
+            { name: 'Summary',      value: `Passed: ${passed} | Failed: ${failed_count} | Warnings: ${warned}`, inline: false },
+            { name: 'Output',       value: '```' + '\n' + truncated + '\n' + '```', inline: false },
+        ],
+        footer: { text: 'DCI Checker' },
+        timestamp: new Date().toISOString(),
+    };
+    if (runUrl) embed.url = runUrl;
+
+    const payload = JSON.stringify({ embeds: [embed] });
+
+    const url = new URL(webhookUrl);
+    const req = https.request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+        },
+    }, res => {
+        let body = '';
+        res.on('data', d => body += d);
+        res.on('end', () => {
+            if (res.statusCode >= 400) console.error(`Webhook failed: HTTP ${res.statusCode}`, body);
+            else console.log('Webhook sent.');
+        });
+    });
+    req.on('error', e => console.error('Webhook error:', e.message));
+    req.write(payload);
+    req.end();
+}
+
+if (failed) process.exit(1);

@@ -1,0 +1,6 @@
+node_modules/
+.env
+guild-configs.json
+*.zip
+.npm/
+temp_repo/
