@@ -181,9 +181,9 @@ if (webhookUrl) {
     const output = lines.join('\n').replace(/[^\x20-\x7E\n]/g, '').trim();
     const truncated = output.length > 900 ? output.slice(0, 900) + '\n...(truncated)' : output;
 
-    const passed = lines.filter(l => l.startsWith('OK ')).length;
-    const failed_count = lines.filter(l => l.startsWith('FAIL ')).length;
-    const warned = lines.filter(l => l.startsWith('WARN ')).length;
+    const passed_count = lines.filter(l => l.startsWith('✅')).length;
+    const failed_count = lines.filter(l => l.startsWith('❌')).length;
+    const warned_count = lines.filter(l => l.startsWith('⚠️')).length;
 
     const embed = {
         title: `DCI Checker - ${statusText}`,
@@ -192,7 +192,7 @@ if (webhookUrl) {
             { name: 'Repository',   value: repo || 'local', inline: true },
             { name: 'Branch',       value: ref,             inline: true },
             { name: 'Triggered by', value: actor,           inline: true },
-            { name: 'Summary',      value: `Passed: ${passed} | Failed: ${failed_count} | Warnings: ${warned}`, inline: false },
+            { name: 'Summary',      value: `Passed: ${passed_count} | Failed: ${failed_count} | Warnings: ${warned_count}`, inline: false },
             { name: 'Output',       value: '```' + '\n' + truncated + '\n' + '```', inline: false },
         ],
         footer: { text: 'DCI Checker' },
