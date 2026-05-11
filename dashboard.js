@@ -129,18 +129,28 @@ module.exports = function startDashboard(client) {
         res.json(logBuffer.slice(since));
     });
 
-    app.post('/exec', auth, (req, res) => {
-        const { code } = req.body;
-        if (!code) return res.status(400).json({ error: 'code required' });
+    app.post('/exec', auth, async (req, res) => {
+        const { command, args = {} } = req.body || {};
+        if (!command || typeof command !== 'string') {
+            return res.status(400).json({ error: 'command required' });
+        }
+
+        const commands = {
+            ping: async () => 'pong',
+            getUptime: async () => process.uptime(),
+            getMemoryUsage: async () => process.memoryUsage(),
+            getLogCount: async () => logBuffer.length
+        };
+
+        const handler = commands[command];
+        if (!handler) {
+            return res.status(400).json({ error: 'Unknown command' });
+        }
+
         try {
-            let result = eval(code);
-            if (result && typeof result.then === 'function') {
-                result.then(v => res.json({ ok: true,  result: String(v) }))
-                      .catch(e => res.json({ ok: false, error: e.message }));
-            } else {
-                res.json({ ok: true, result: require('util').inspect(result, { depth: 3 }) });
-            }
-        } catch(e) {
+            const result = await handler(args);
+            res.json({ ok: true, result: require('util').inspect(result, { depth: 3 }) });
+        } catch (e) {
             res.json({ ok: false, error: e.message });
         }
     });
